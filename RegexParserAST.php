@@ -1,4 +1,5 @@
 <?php
+
 namespace kak\RegexParserAST;
 
 
@@ -29,10 +30,10 @@ class RegexParserAST
     private const TYPE_UNICODE_PROPERTY_ESCAPE = 'unicodePropertyEscape';
     private const TYPE_DOT = 'dot';
     private const TYPE_VALUE = 'value';
+    private const TYPE_IDENTIFIER = 'identifier';
 
     private const KIND_OCTAL = 'octal';
     private const KIND_SYMBOL = 'symbol';
-
 
 
     /**
@@ -68,7 +69,12 @@ class RegexParserAST
         return $this->parseDisjunction();
     }
 
-
+    /**
+     * @param string $message
+     * @param int $from
+     * @param int $to
+     * @return \Exception
+     */
     private function makeThrow(string $message, int $from, int $to)
     {
         return new \Exception(
@@ -76,6 +82,9 @@ class RegexParserAST
         );
     }
 
+    /**
+     * @return string
+     */
     private function lookahead(): string
     {
         return $this->source[$this->pos] ?? '';
@@ -180,7 +189,6 @@ class RegexParserAST
     }
 
 
-
     private function createAlternative($terms, $from, $to)
     {
         $result = $this->createTypeAndRange(self::TYPE_ALTERNATIVE, $from, $to);
@@ -263,7 +271,6 @@ class RegexParserAST
     }
 
 
-
     private function createGroup($behavior, $disjunction, $from, $to)
     {
         $result = $this->createTypeAndRange(self::TYPE_GROUP, $from, $to);
@@ -271,7 +278,6 @@ class RegexParserAST
         $result['body'] = $disjunction;
         return $this->addendRaw($result);
     }
-
 
 
     private function createAnchor($kind, $from, $to)
@@ -337,7 +343,6 @@ class RegexParserAST
 
 
     }
-
 
 
     private function parseDecimalEscape()
@@ -473,7 +478,6 @@ class RegexParserAST
         return $this->parseIdentityEscape();
     }
 
-
     private function createUnicodePropertyEscape($res)
     {
         $result = $this->createTypeAndRange(
@@ -488,13 +492,79 @@ class RegexParserAST
         return $result;
     }
 
-    private function parseIdentifierAtom($check) {
+    private function fromCodePoint()
+    {
+        return implode('', array_map('chr', func_get_args()));
+    }
+
+
+    private function parseIdentifierAtom($callback = null)
+    {
         $ch = $this->lookahead();
         $from = $this->pos;
 
-
+        if ($ch === "\\" && $callback !== null) {
+            $this->incr();
+            $esc = $this->parseRegExpUnicodeEscapeSequence();
+            if (!$esc || !call_user_func([$this, $callback], $esc['codePoint'])) {
+                $this->makeThrow('Invalid escape sequence', $from, $this->pos);
+            }
+            return $this->fromCodePoint($esc['codePoint']);
+        }
+        $code = $this->charCodeAt($ch, 0);
+        if ($code >= 0xD800 && $code <= 0xDBFF) {
+            $ch += substr($this->source, $this->pos + 1, 1);
+            $second = $this->charCodeAt($ch, 1);
+            if ($second >= 0xDC00 && second <= 0xDFFF) {
+                // Unicode surrogate pair
+                $code = ($code - 0xD800) * 0x400 + $second - 0xDC00 + 0x10000;
+            }
+        }
+        if ($callback !== null && call_user_func([$this, $callback], $code)) {
+            return;
+        }
+        $this->incr();
+        if ($code > 0xFFFF) {
+            $this->incr();
+        }
+        return $ch;
     }
 
+    private function parseIdentifier()
+    {
+        // RegExpIdentifierName ::
+        //      RegExpIdentifierStart
+        //      RegExpIdentifierName RegExpIdentifierContinue
+        //
+        // RegExpIdentifierStart ::
+        //      UnicodeIDStart
+        //      $
+        //      _
+        //      \ RegExpUnicodeEscapeSequence
+        //
+        // RegExpIdentifierContinue ::
+        //      UnicodeIDContinue
+        //      $
+        //      _
+        //      \ RegExpUnicodeEscapeSequence
+        //      <ZWNJ>
+        //      <ZWJ>
+
+        $from = $this->pos;
+        $res = $this->parseIdentifierAtom('isIdentifierStart');
+        if (!$res) {
+            $this->makeThrow('Invalid identifier', $from, $this->pos);
+        }
+
+        while ($ch = $this->parseIdentifierAtom('isIdentifierPart')) {
+            $res += $ch;
+        }
+
+        $result = $this->createTypeAndRange(self::TYPE_IDENTIFIER, $from, $this->pos);
+        $result['value'] = $res;
+        return $this->addendRaw($result);
+
+    }
 
     private function parseAtomEscape($insideCharacterClass = false)
     {
@@ -510,8 +580,6 @@ class RegexParserAST
         }
 
     }
-
-
 
 
     private function createDot()
@@ -553,7 +621,6 @@ class RegexParserAST
         }
         return $this->createValue(self::KIND_SYMBOL, $first, $this->pos - 1, $this->pos);
     }
-
 
 
     private function createValue($kind, $codePoint, $from, $to)

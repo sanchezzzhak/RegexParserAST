@@ -1,18 +1,19 @@
 {
-    "name": "kak/regex-parser-ast",
-    "type": "library",
-    "authors": [
-        {
-            "name": "Tutik Alexsandr",
-            "email": "sanchezzzhak@yandex.ru"
-        }
-    ],
-    "require": {
-        "php":">=7.4.0"
-    },
-    "autoload": {
-        "psr-4": {
-            "kak\\RegexParserAST\\": ""
-        }
+  "name": "kak/regex-parser-ast",
+  "type": "library",
+  "authors": [
+    {
+      "name": "Tutik Alexsandr",
+      "email": "sanchezzzhak@yandex.ru"
     }
+  ],
+  "require": {
+    "php": ">=7.4.0",
+    "ext-mbstring": "*"
+  },
+  "autoload": {
+    "psr-4": {
+      "kak\\RegexParserAST\\": ""
+    }
+  }
 }
